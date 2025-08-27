@@ -8,8 +8,7 @@ from unittest.mock import patch, mock_open
 from palmoni_core.core.config import (
     PalmoniConfig,
     get_default_config_dir,
-    get_default_snippets_file,
-    get_bundled_snippets_file,
+    get_bundled_database_file,
     load_config,
     save_config,
     ensure_user_setup
@@ -19,7 +18,7 @@ from palmoni_core.core.config import (
 class TestPalmoniConfig:
     def test_config_defaults(self):
         config = PalmoniConfig(
-            snippets_file=Path("test.yml"),
+            database_file=Path("test.db"),
             user_config_dir=Path("test_dir")
         )
         
@@ -29,7 +28,7 @@ class TestPalmoniConfig:
     
     def test_config_custom_values(self):
         config = PalmoniConfig(
-            snippets_file=Path("test.yml"),
+            database_file=Path("test.db"),
             user_config_dir=Path("test_dir"),
             poll_interval=0.5,
             log_level="DEBUG"
@@ -80,8 +79,7 @@ class TestLoadConfig:
     def test_load_config_with_file(self):
         config_data = {
             "poll_interval": 0.5,
-            "log_level": "DEBUG",
-            "snippets_file": "/custom/path/snippets.yml"
+            "log_level": "DEBUG"
         }
         
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -94,7 +92,6 @@ class TestLoadConfig:
             
             assert config.poll_interval == 0.5
             assert config.log_level == "DEBUG"
-            assert config.snippets_file == Path("/custom/path/snippets.yml")
     
     def test_load_config_corrupted_file(self, capsys):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -115,7 +112,7 @@ class TestSaveConfig:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir)
             config = PalmoniConfig(
-                snippets_file=Path("/test/snippets.yml"),
+                database_file=Path("/test/snippets.db"),
                 user_config_dir=config_dir,
                 poll_interval=0.5,
                 log_level="DEBUG"
@@ -131,24 +128,31 @@ class TestSaveConfig:
             
             assert saved_data["poll_interval"] == 0.5
             assert saved_data["log_level"] == "DEBUG"
-            assert saved_data["snippets_file"] == "/test/snippets.yml"
 
 
 class TestEnsureUserSetup:
-    def test_ensure_user_setup_creates_directory(self):
+    def test_ensure_user_setup_with_existing_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch('palmoni_core.core.config.get_default_config_dir') as mock_config_dir:
-                mock_config_dir.return_value = Path(temp_dir) / "palmoni"
+            db_file = Path(temp_dir) / "snippets.db"
+            db_file.touch()
+            
+            with patch('palmoni_core.core.config.get_bundled_database_file') as mock_bundled:
+                mock_bundled.return_value = db_file
                 
-                with patch('palmoni_core.core.config.get_default_snippets_file') as mock_snippets:
-                    mock_snippets.return_value = Path(temp_dir) / "palmoni" / "snippets.yml"
+                with patch('palmoni_core.core.config.get_default_config_dir') as mock_config_dir:
+                    mock_config_dir.return_value = Path(temp_dir)
                     
-                    with patch('palmoni_core.core.config.get_bundled_snippets_file') as mock_bundled:
-                        bundled_file = Path(temp_dir) / "bundled.yml"
-                        bundled_file.write_text("snippets:\n  test: 'value'")
-                        mock_bundled.return_value = bundled_file
-                        
-                        result_path = ensure_user_setup()
-                        
-                        assert Path(temp_dir) / "palmoni" / "snippets.yml" == result_path
-                        assert result_path.exists()
+                    result_path = ensure_user_setup()
+                    
+                    assert result_path == db_file
+    
+    def test_ensure_user_setup_missing_database(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch('palmoni_core.core.config.get_bundled_database_file') as mock_bundled:
+                mock_bundled.return_value = Path(temp_dir) / "missing.db"
+                
+                with patch('palmoni_core.core.config.get_default_config_dir') as mock_config_dir:
+                    mock_config_dir.return_value = Path(temp_dir)
+                    
+                    with pytest.raises(FileNotFoundError):
+                        ensure_user_setup()
