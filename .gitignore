@@ -105,3 +105,5 @@ scripts/
 # Backup files
 *.bak
 *.backup
+
+*.sh
